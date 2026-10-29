@@ -136,7 +136,7 @@ pub struct RecoveryRegisterInterface {
     pub device_status_1: ReadWriteRegister<u32>,
     #[register(offset = 0x38)]
     pub device_reset: ReadWriteRegister<u32>,
-    #[register(offset = 0x3c)]
+    #[register(offset = 0x3c, write_fn = recovery_ctrl_write)]
     pub recovery_ctrl: ReadWriteRegister<u32, RecoveryControl::Register>,
     #[register(offset = 0x40, write_fn = recovery_status_write)]
     pub recovery_status: ReadWriteRegister<u32>,
@@ -165,6 +165,11 @@ pub struct RecoveryRegisterInterface {
 
     pub cms_data: Vec<Vec<u8>>,
     pub event_sender: Option<mpsc::Sender<Event>>,
+
+    /// Every word Caliptra writes to RECOVERY_CTRL, in order. The register
+    /// holds only the last write, so a test that checks what Caliptra wrote
+    /// reads the words here instead.
+    pub recovery_ctrl_writes: Vec<u32>,
 }
 
 impl RecoveryRegisterInterface {
@@ -217,6 +222,7 @@ impl RecoveryRegisterInterface {
 
             cms_data: vec![],
             event_sender: None,
+            recovery_ctrl_writes: vec![],
         }
     }
 
@@ -303,6 +309,16 @@ impl RecoveryRegisterInterface {
         if load.reg.is_set(IndirectCtrl0::RESET) {
             self.load_image();
         }
+        Ok(())
+    }
+
+    pub fn recovery_ctrl_write(&mut self, size: RvSize, val: RvData) -> Result<(), BusError> {
+        // Writes have to be Word aligned
+        if size != RvSize::Word {
+            Err(BusError::StoreAccessFault)?
+        }
+        self.recovery_ctrl_writes.push(val);
+        self.recovery_ctrl.reg.set(val);
         Ok(())
     }
 
